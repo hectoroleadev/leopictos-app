@@ -1,5 +1,13 @@
 import { Pictogram } from '../types';
 import { API_ENDPOINT } from '../constants';
+import {
+  getCachedPictogramList,
+  cachePictogramList,
+  getCachedPictogram,
+  cachePictogram,
+  invalidatePictogramListCache,
+  invalidatePictogramCache
+} from './cacheService';
 
 /**
  * Create a new pictogram
@@ -15,13 +23,27 @@ export const createPictogram = async (pictogram: Omit<Pictogram, 'id'>): Promise
     throw new Error(`Failed to create pictogram: ${response.statusText}`);
   }
   
-  return response.json();
+  const newPictogram = await response.json();
+  
+  // Invalidate list cache since we added a new item
+  await invalidatePictogramListCache();
+  
+  return newPictogram;
 };
 
 /**
  * List all pictograms (optionally filtered by userId)
  */
 export const listPictograms = async (userId?: string): Promise<Pictogram[]> => {
+  // Try cache first (only for non-filtered requests)
+  if (!userId) {
+    const cached = await getCachedPictogramList();
+    if (cached) {
+      console.log('[API] Returning cached pictogram list');
+      return cached;
+    }
+  }
+  
   const url = userId 
     ? `${API_ENDPOINT}/pictograms?userId=${userId}`
     : `${API_ENDPOINT}/pictograms`;
@@ -32,20 +54,39 @@ export const listPictograms = async (userId?: string): Promise<Pictogram[]> => {
     throw new Error(`Failed to list pictograms: ${response.statusText}`);
   }
   
-  return response.json();
+  const pictograms = await response.json();
+  
+  // Cache the result (only for non-filtered requests)
+  if (!userId) {
+    await cachePictogramList(pictograms);
+  }
+  
+  return pictograms;
 };
 
 /**
  * Get a specific pictogram by ID
  */
 export const getPictogram = async (id: string): Promise<Pictogram> => {
+  // Try cache first
+  const cached = await getCachedPictogram(id);
+  if (cached) {
+    console.log('[API] Returning cached pictogram:', id);
+    return cached;
+  }
+  
   const response = await fetch(`${API_ENDPOINT}/pictograms/${id}`);
   
   if (!response.ok) {
     throw new Error(`Failed to get pictogram: ${response.statusText}`);
   }
   
-  return response.json();
+  const pictogram = await response.json();
+  
+  // Cache the result
+  await cachePictogram(pictogram);
+  
+  return pictogram;
 };
 
 /**
@@ -65,11 +106,18 @@ export const updatePictogram = async (id: string, updates: Partial<Pictogram>): 
       // Fallback for now: If API fails (e.g. 404/405), we just return the merged object 
       // so the UI updates locally, but we throw a warning.
       console.warn(`Backend update failed (${response.status}). Updating locally only.`);
+      // Invalidate cache anyway
+      await invalidatePictogramCache(id);
       // throw new Error(`Failed to update pictogram: ${response.statusText}`);
       return { id, ...updates } as Pictogram; 
     }
     
-    return response.json();
+    const updatedPictogram = await response.json();
+    
+    // Invalidate cache for this pictogram and the list
+    await invalidatePictogramCache(id);
+    
+    return updatedPictogram;
   };
 
 /**
@@ -83,6 +131,9 @@ export const deletePictogram = async (id: string): Promise<void> => {
   if (!response.ok) {
     throw new Error(`Failed to delete pictogram: ${response.statusText}`);
   }
+  
+  // Invalidate cache for this pictogram and the list
+  await invalidatePictogramCache(id);
 };
 
 /**

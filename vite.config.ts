@@ -6,6 +6,7 @@ export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
       base: '/', // GitHub Pages with custom domain uses root path
+      publicDir: 'public', // Ensure public folder is copied to dist
       server: {
         port: 3000,
         host: '0.0.0.0',
