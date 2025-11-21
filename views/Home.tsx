@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { Search, Sparkles, Loader2, CloudOff, Unlock } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Search, Sparkles, Loader2, CloudOff, Unlock, Move } from 'lucide-react';
 import { Pictogram } from '../types';
-import PictogramCard from '../components/PictogramCard';
-import CreateModal from '../components/CreateModal';
+import PictogramCard from '../components/cards/PictogramCard';
+import CreateModal from '../components/modals/CreateModal';
 import { usePictogramContext } from '../context/PictogramContext';
 import { useUIContext } from '../context/UIContext';
 
@@ -10,7 +10,7 @@ const Home: React.FC = () => {
   const { 
     pictograms, loading, error, loadingExamples, 
     addPictogram, removePictogram, editPictogram, 
-    loadPictograms, generateExamples 
+    loadPictograms, generateExamples, reorderPictograms
   } = usePictogramContext();
 
   const { 
@@ -19,10 +19,17 @@ const Home: React.FC = () => {
   } = useUIContext();
 
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // Drag and Drop State
+  const [dragItemIndex, setDragItemIndex] = useState<number | null>(null);
+  const [dragOverItemIndex, setDragOverItemIndex] = useState<number | null>(null);
 
   const filteredPictograms = pictograms.filter(p => 
     p.word.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  // Disable Drag n Drop if searching, as indices won't match source array
+  const isDragEnabled = searchTerm === '';
 
   // --- Wrappers interfacing Context Logic with UI Feedback ---
 
@@ -66,6 +73,51 @@ const Home: React.FC = () => {
     }
   };
 
+  // --- DnD Handlers ---
+  const handleDragStart = (index: number) => (e: React.DragEvent) => {
+    setDragItemIndex(index);
+    // Required for Firefox and other browsers to recognize the drag operation
+    e.dataTransfer.effectAllowed = "move"; 
+    e.dataTransfer.setData("text/plain", index.toString());
+  };
+
+  const handleDragEnter = (index: number) => (e: React.DragEvent) => {
+     setDragOverItemIndex(index);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault(); // Necessary to allow dropping
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    
+    if (dragItemIndex === null || dragOverItemIndex === null) return;
+    if (dragItemIndex === dragOverItemIndex) {
+        setDragItemIndex(null);
+        setDragOverItemIndex(null);
+        return;
+    }
+
+    // Reorder logic
+    const _pictograms = [...pictograms];
+    const draggedItemContent = _pictograms[dragItemIndex];
+    
+    _pictograms.splice(dragItemIndex, 1);
+    _pictograms.splice(dragOverItemIndex, 0, draggedItemContent);
+
+    setDragItemIndex(null);
+    setDragOverItemIndex(null);
+
+    reorderPictograms(_pictograms);
+  };
+  
+  const handleDragEnd = () => {
+     setDragItemIndex(null);
+     setDragOverItemIndex(null);
+  };
+
   return (
     <>
         {/* Search Bar */}
@@ -89,6 +141,13 @@ const Home: React.FC = () => {
                     <Unlock size={16} /> Modo Edición Activado: Puedes borrar o modificar pictogramas.
                 </p>
             </div>
+        )}
+        
+        {/* Drag Tip */}
+        {isDragEnabled && pictograms.length > 1 && !loading && !error && (
+             <div className="text-center mb-4 text-xs text-gray-400 dark:text-gray-500 flex items-center justify-center gap-1">
+                <Move size={12} /> Arrastra las tarjetas para reordenarlas
+             </div>
         )}
 
         {/* Error State */}
@@ -138,7 +197,7 @@ const Home: React.FC = () => {
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
-                    {filteredPictograms.map(pictogram => (
+                    {filteredPictograms.map((pictogram, index) => (
                       <PictogramCard 
                         key={pictogram.id} 
                         pictogram={pictogram} 
@@ -146,6 +205,15 @@ const Home: React.FC = () => {
                         onEdit={handleEdit}
                         onSelect={addToSentence}
                         isEditMode={isEditMode}
+                        // DnD Props
+                        draggable={isDragEnabled}
+                        onDragStart={handleDragStart(index)}
+                        onDragEnter={handleDragEnter(index)}
+                        onDragOver={handleDragOver}
+                        onDrop={handleDrop}
+                        onDragEnd={handleDragEnd}
+                        isDragging={index === dragItemIndex}
+                        isDragOver={index === dragOverItemIndex}
                       />
                     ))}
                   </div>

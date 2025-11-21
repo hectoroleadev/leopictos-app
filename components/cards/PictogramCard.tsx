@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Pictogram } from '../types';
+import { Pictogram } from '../../types';
 import { Play, Trash2, Check, X, Loader2, Edit2, GripHorizontal } from 'lucide-react';
-import { playAudio } from '../services/geminiService';
+import { playAudio } from '../../services/geminiService';
 
 interface PictogramCardProps {
   pictogram: Pictogram;
@@ -16,6 +16,7 @@ interface PictogramCardProps {
   onDrop?: (e: React.DragEvent) => void;
   onDragEnter?: (e: React.DragEvent) => void;
   onDragLeave?: (e: React.DragEvent) => void;
+  onDragEnd?: (e: React.DragEvent) => void;
   isDragging?: boolean;
   isDragOver?: boolean;
 }
@@ -32,6 +33,7 @@ const PictogramCard: React.FC<PictogramCardProps> = ({
   onDrop,
   onDragEnter,
   onDragLeave,
+  onDragEnd,
   isDragging,
   isDragOver
 }) => {
@@ -110,6 +112,7 @@ const PictogramCard: React.FC<PictogramCardProps> = ({
       onDrop={onDrop}
       onDragEnter={onDragEnter}
       onDragLeave={onDragLeave}
+      onDragEnd={onDragEnd}
       className={`
         relative group bg-white dark:bg-gray-800 rounded-2xl shadow-lg transition-all duration-300 overflow-hidden border-4
         ${isDragging ? 'opacity-40 scale-95 grayscale' : 'opacity-100'}

@@ -51,6 +51,11 @@ export const pictogramReducer = (state: PictogramState, action: PictogramAction)
           p.id === action.payload.id ? { ...p, ...action.payload.updates } : p
         )
       };
+    case PictogramActionTypes.REORDER_PICTOGRAMS:
+      return {
+        ...state,
+        pictograms: action.payload
+      };
     case PictogramActionTypes.GENERATE_EXAMPLES_START:
       return {
         ...state,

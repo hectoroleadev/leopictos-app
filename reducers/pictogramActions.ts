@@ -35,6 +35,11 @@ export const updatePictogramAction = (id: string, updates: Partial<Pictogram>): 
   payload: { id, updates }
 });
 
+export const reorderPictogramsAction = (pictograms: Pictogram[]): PictogramAction => ({
+  type: PictogramActionTypes.REORDER_PICTOGRAMS,
+  payload: pictograms
+});
+
 export const generateExamplesStart = (): PictogramAction => ({
   type: PictogramActionTypes.GENERATE_EXAMPLES_START
 });

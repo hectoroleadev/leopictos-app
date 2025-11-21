@@ -1,7 +1,7 @@
 import React from 'react';
 import Header from './Header';
 import SentenceStrip from './SentenceStrip';
-import Toast from '../Toast';
+import Toast from '../feedback/Toast';
 import { useUIContext } from '../../context/UIContext';
 
 interface MainLayoutProps {

@@ -11,6 +11,7 @@ interface PictogramContextType {
   addPictogram: (pictogram: Pictogram) => Promise<Pictogram>;
   removePictogram: (id: string) => Promise<void>;
   editPictogram: (id: string, newWord: string) => Promise<void>;
+  reorderPictograms: (newOrder: Pictogram[]) => void;
   generateExamples: () => Promise<number>;
 }
 

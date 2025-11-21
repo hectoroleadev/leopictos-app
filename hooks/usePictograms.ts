@@ -14,6 +14,7 @@ import {
   addSuccess, 
   deletePictogramAction, deleteFailure, 
   updatePictogramAction, 
+  reorderPictogramsAction,
   generateExamplesStart, generateExamplesSuccess, generateExamplesError 
 } from '../reducers/pictogramActions';
 
@@ -27,7 +28,8 @@ export const usePictograms = () => {
     dispatch(fetchStart());
     try {
       const data = await listPictograms();
-      // Sort by newest first
+      // Sort by newest first by default, unless we have a stored order field. 
+      // For now, we respect the order returned or default sort.
       const sorted = data.sort((a, b) => b.createdAt - a.createdAt);
       dispatch(fetchSuccess(sorted));
     } catch (err) {
@@ -104,6 +106,11 @@ export const usePictograms = () => {
     }
   };
 
+  // Reorder Pictograms (Local only for now, persist if backend supports it)
+  const reorderPictograms = (newOrder: Pictogram[]) => {
+    dispatch(reorderPictogramsAction(newOrder));
+  };
+
   // Generate Examples logic
   const generateExamples = async (): Promise<number> => {
     if (state.loadingExamples) return 0;
@@ -162,6 +169,7 @@ export const usePictograms = () => {
     addPictogram,
     removePictogram,
     editPictogram,
+    reorderPictograms,
     generateExamples
   };
 };
