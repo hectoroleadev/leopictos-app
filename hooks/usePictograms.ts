@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useReducer } from 'react';
 import { Pictogram } from '../types';
 import { 
   listPictograms, 
@@ -8,29 +8,31 @@ import {
 } from '../services/apiService';
 import { generatePictogramImage, generatePictogramAudio } from '../services/geminiService';
 import { uploadImageToS3 } from '../services/storageService';
+import { pictogramReducer, initialState } from '../reducers/pictogramReducer';
+import { 
+  fetchStart, fetchSuccess, fetchError, 
+  addSuccess, 
+  deletePictogramAction, deleteFailure, 
+  updatePictogramAction, 
+  generateExamplesStart, generateExamplesSuccess, generateExamplesError 
+} from '../reducers/pictogramActions';
 
 const EXAMPLE_WORDS = ['Perro', 'Casa', 'Feliz'];
 
 export const usePictograms = () => {
-  const [pictograms, setPictograms] = useState<Pictogram[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [loadingExamples, setLoadingExamples] = useState(false);
+  const [state, dispatch] = useReducer(pictogramReducer, initialState);
 
   // Fetch Pictograms
   const loadPictograms = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+    dispatch(fetchStart());
     try {
       const data = await listPictograms();
       // Sort by newest first
       const sorted = data.sort((a, b) => b.createdAt - a.createdAt);
-      setPictograms(sorted);
+      dispatch(fetchSuccess(sorted));
     } catch (err) {
       console.error("Error fetching pictograms:", err);
-      setError("No se pudo conectar con el servidor.");
-    } finally {
-      setLoading(false);
+      dispatch(fetchError("No se pudo conectar con el servidor."));
     }
   }, []);
 
@@ -44,7 +46,7 @@ export const usePictograms = () => {
     try {
       const { id, ...pictogramData } = newPictogram;
       const created = await createPictogram(pictogramData);
-      setPictograms(prev => [created, ...prev]);
+      dispatch(addSuccess(created));
       return created;
     } catch (err) {
       console.error("Error adding pictogram:", err);
@@ -54,27 +56,31 @@ export const usePictograms = () => {
 
   // Remove Pictogram
   const removePictogram = async (id: string) => {
+    const previousPictograms = state.pictograms;
+    
     // Optimistic update
-    const previous = [...pictograms];
-    setPictograms(prev => prev.filter(p => p.id !== id));
+    dispatch(deletePictogramAction(id));
     
     try {
       await deletePictogram(id);
     } catch (err) {
       console.error("Error deleting pictogram:", err);
       // Rollback
-      setPictograms(previous);
+      dispatch(deleteFailure(previousPictograms));
       throw err;
     }
   };
 
-  // Update Pictogram (Handles logic for regenerating audio if text changes)
+  // Update Pictogram
   const editPictogram = async (id: string, newWord: string) => {
-    const picToUpdate = pictograms.find(p => p.id === id);
+    const picToUpdate = state.pictograms.find(p => p.id === id);
     if (!picToUpdate) return;
 
     try {
         let updates: Partial<Pictogram> = { word: newWord.toUpperCase() };
+
+        // Optimistic update
+        dispatch(updatePictogramAction(id, updates));
 
         // If word changed, regenerate audio
         if (picToUpdate.word !== newWord.toUpperCase()) {
@@ -82,35 +88,27 @@ export const usePictograms = () => {
             const newAudioBase64 = await generatePictogramAudio(newWord, voiceToUse);
             
             updates.audioBase64 = newAudioBase64;
-            updates.isCustomAudio = false; // Reset custom audio flag since we auto-generated
+            updates.isCustomAudio = false;
+            
+            // Update again with audio
+            dispatch(updatePictogramAction(id, { audioBase64: newAudioBase64, isCustomAudio: false }));
         }
-
-        // Optimistic update local state
-        setPictograms(prev => prev.map(p => {
-            if (p.id === id) {
-                return { ...p, ...updates };
-            }
-            return p;
-        }));
 
         // Call API to persist
         await updatePictogram(id, updates);
 
     } catch (err) {
         console.error("Error updating pictogram:", err);
-        // Ideally reload from server here to ensure sync
-        loadPictograms();
+        loadPictograms(); // Revert to server state on error
         throw err;
     }
   };
 
   // Generate Examples logic
   const generateExamples = async (): Promise<number> => {
-    if (loadingExamples) return 0;
-    setLoadingExamples(true);
+    if (state.loadingExamples) return 0;
+    dispatch(generateExamplesStart());
     
-    let successCount = 0;
-
     try {
         const promises = EXAMPLE_WORDS.map(async (word) => {
             try {
@@ -142,24 +140,24 @@ export const usePictograms = () => {
         const successfulPictograms = results.filter((p): p is Pictogram => p !== null);
         
         if (successfulPictograms.length > 0) {
-            setPictograms(prev => [...successfulPictograms, ...prev]);
-            successCount = successfulPictograms.length;
+            dispatch(generateExamplesSuccess(successfulPictograms));
+            return successfulPictograms.length;
         }
         
-        return successCount;
+        dispatch(generateExamplesSuccess([])); // Stop loading state
+        return 0;
     } catch (err) {
         console.error("Error in bulk generation:", err);
+        dispatch(generateExamplesError("Error generando ejemplos."));
         throw err;
-    } finally {
-        setLoadingExamples(false);
     }
   };
 
   return {
-    pictograms,
-    loading,
-    error,
-    loadingExamples,
+    pictograms: state.pictograms,
+    loading: state.loading,
+    error: state.error,
+    loadingExamples: state.loadingExamples,
     loadPictograms,
     addPictogram,
     removePictogram,

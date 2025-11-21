@@ -1,4 +1,5 @@
-export const APP_TITLE = "LeoPictos";
+
+export const APP_TITLE = "PictoLeo AI";
 export const GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image";
 export const GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts";
 

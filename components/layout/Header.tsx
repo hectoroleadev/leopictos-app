@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Plus, Moon, Sun, Lock, Unlock } from 'lucide-react';
 import { APP_TITLE } from '../../constants';
@@ -17,28 +18,45 @@ const Header: React.FC = () => {
   return (
     <header className="bg-white dark:bg-gray-800 border-b border-blue-100 dark:border-gray-700 sticky top-0 z-40 shadow-sm transition-colors duration-300">
       <div className="container mx-auto px-4 h-20 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          {/* Leonel's Lion Logo */}
-          <div className="w-12 h-12 flex items-center justify-center hover:scale-110 transition-transform duration-300">
+        <div className="flex items-center gap-3 group cursor-pointer">
+          {/* PictoLeo Logo: Lion inside a Speech Bubble with AI Sparkle */}
+          <div className="w-12 h-12 relative hover:scale-110 transition-transform duration-300">
             <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-md" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="50" cy="50" r="45" fill="#FBBC05" />
-              <circle cx="50" cy="50" r="45" stroke="#F59E0B" strokeWidth="3" />
-              <circle cx="25" cy="30" r="12" fill="#FBBC05" />
-              <circle cx="75" cy="30" r="12" fill="#FBBC05" />
-              <circle cx="25" cy="30" r="7" fill="#FFF9C4" />
-              <circle cx="75" cy="30" r="7" fill="#FFF9C4" />
-              <circle cx="50" cy="55" r="32" fill="#FFF9C4" />
-              <path d="M42 52C42 52 50 60 58 52" stroke="#3E2723" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-              <circle cx="50" cy="48" r="5" fill="#3E2723" />
-              <circle cx="40" cy="40" r="4" fill="#3E2723" />
-              <circle cx="60" cy="40" r="4" fill="#3E2723" />
-              <circle cx="41.5" cy="38.5" r="1.5" fill="white" />
-              <circle cx="61.5" cy="38.5" r="1.5" fill="white" />
-              <circle cx="35" cy="55" r="5" fill="#F48FB1" opacity="0.6" />
-              <circle cx="65" cy="55" r="5" fill="#F48FB1" opacity="0.6" />
+              {/* Speech Bubble Body (Blue) */}
+              <path d="M10 50 Q10 10 50 10 T90 50 Q90 85 60 88 L50 98 L40 88 Q10 85 10 50 Z" fill="#3B82F6" className="dark:fill-blue-600" />
+              
+              {/* Lion Face Circle */}
+              <circle cx="50" cy="48" r="28" fill="#FBBC05" />
+              <circle cx="50" cy="48" r="28" stroke="#F59E0B" strokeWidth="2" />
+              
+              {/* Lion Ears */}
+              <circle cx="28" cy="32" r="7" fill="#FBBC05" />
+              <circle cx="72" cy="32" r="7" fill="#FBBC05" />
+              <circle cx="28" cy="32" r="4" fill="#FFF9C4" />
+              <circle cx="72" cy="32" r="4" fill="#FFF9C4" />
+              
+              {/* Lion Muzzle */}
+              <circle cx="50" cy="53" r="12" fill="#FFF9C4" />
+              
+              {/* Eyes */}
+              <circle cx="42" cy="42" r="3" fill="#3E2723" />
+              <circle cx="58" cy="42" r="3" fill="#3E2723" />
+              
+              {/* Nose & Mouth */}
+              <path d="M46 52 Q50 56 54 52" stroke="#3E2723" strokeWidth="2" strokeLinecap="round" fill="none" />
+              <circle cx="50" cy="49" r="3" fill="#3E2723" />
+              
+              {/* AI Sparkle (Top Right) */}
+              <path d="M85 15 L87 20 L92 22 L87 24 L85 29 L83 24 L78 22 L83 20 Z" fill="#FBBF24" className="animate-pulse" />
             </svg>
           </div>
-          <h1 className="text-3xl font-bold text-orange-500 dark:text-orange-400 tracking-tight transition-colors duration-300 font-fredoka hidden sm:block">{APP_TITLE}</h1>
+          
+          <div className="flex flex-col">
+             <h1 className="text-2xl font-bold text-gray-800 dark:text-white tracking-tight leading-none transition-colors duration-300 font-fredoka hidden sm:block">
+               Picto<span className="text-orange-500">Leo</span>
+             </h1>
+             <span className="text-[10px] font-bold text-blue-500 dark:text-blue-400 tracking-widest uppercase hidden sm:block pl-0.5">AI Powered</span>
+          </div>
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
