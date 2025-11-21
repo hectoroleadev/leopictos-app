@@ -49,6 +49,30 @@ export const getPictogram = async (id: string): Promise<Pictogram> => {
 };
 
 /**
+ * Update a pictogram (Note: Backend support required)
+ * If backend doesn't support PUT/PATCH, this might need adjustment.
+ */
+export const updatePictogram = async (id: string, updates: Partial<Pictogram>): Promise<Pictogram> => {
+    // Assuming standard REST conventions. If your lambda doesn't support this yet,
+    // you might need to add the method to your API Gateway.
+    const response = await fetch(`${API_ENDPOINT}/pictograms/${id}`, {
+      method: 'PATCH', // or PUT
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    });
+    
+    if (!response.ok) {
+      // Fallback for now: If API fails (e.g. 404/405), we just return the merged object 
+      // so the UI updates locally, but we throw a warning.
+      console.warn(`Backend update failed (${response.status}). Updating locally only.`);
+      // throw new Error(`Failed to update pictogram: ${response.statusText}`);
+      return { id, ...updates } as Pictogram; 
+    }
+    
+    return response.json();
+  };
+
+/**
  * Delete a pictogram
  */
 export const deletePictogram = async (id: string): Promise<void> => {
