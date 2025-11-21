@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Modality } from "@google/genai";
 import { GEMINI_IMAGE_MODEL, GEMINI_TTS_MODEL, IMAGE_PROMPT_SUFFIX } from "../constants";
 
 // NOTE: In a production app, API keys should not be exposed on the client.
@@ -60,8 +60,7 @@ export const generatePictogramAudio = async (word: string, voiceName: string = '
         { parts: [{ text: prompt }] }
       ],
       config: {
-        // Use string 'AUDIO' to avoid potential Enum import issues in some environments
-        responseModalities: ['AUDIO'], 
+        responseModalities: [Modality.AUDIO], 
         speechConfig: {
           voiceConfig: {
             prebuiltVoiceConfig: { voiceName: voiceName }, 
@@ -75,6 +74,12 @@ export const generatePictogramAudio = async (word: string, voiceName: string = '
         if (part.inlineData?.data) {
             return part.inlineData.data;
         }
+    }
+    
+    // Check if we got text error/explanation instead
+    const textPart = response.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (textPart) {
+        console.warn("Gemini returned text instead of audio:", textPart);
     }
     
     throw new Error("No audio data returned from Gemini.");

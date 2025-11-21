@@ -21,25 +21,11 @@ const PictogramCard: React.FC<PictogramCardProps> = ({ pictogram, onDelete, onEd
     if (isPlaying || isDeleting || isEditing) return;
     setIsPlaying(true);
     try {
-      if (pictogram.audioUrl) {
-          const audio = new Audio(pictogram.audioUrl);
-          await audio.play();
-          // Wait for audio to finish or just use a timeout? 
-          // audio.play() resolves when playback *starts*.
-          // To match the visual state, we can listen to 'ended'
-          await new Promise((resolve) => {
-              audio.onended = resolve;
-              // Safety timeout in case of errors or very long audio
-              setTimeout(resolve, 10000); 
-          });
-      } else if (pictogram.audioBase64) {
-          await playAudio(pictogram.audioBase64);
-      }
+      await playAudio(pictogram.audioBase64);
       // Add a small visual timeout to simulate "playing" state duration if audio is short
-      // setTimeout(() => setIsPlaying(false), 1000); // Removed fixed timeout in favor of await
+      setTimeout(() => setIsPlaying(false), 1000);
     } catch (e) {
       console.error("Failed to play audio", e);
-    } finally {
       setIsPlaying(false);
     }
   };

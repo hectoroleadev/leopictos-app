@@ -1,6 +1,5 @@
 import { Pictogram } from '../types';
-
-const API_ENDPOINT = import.meta.env.VITE_API_ENDPOINT;
+import { API_ENDPOINT } from '../constants';
 
 /**
  * Create a new pictogram

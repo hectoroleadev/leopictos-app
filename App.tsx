@@ -1,21 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Moon, Sun, Lock, Unlock } from 'lucide-react';
+import { Plus, Search, Moon, Sun, Sparkles, Loader2, Lock, Unlock, CloudOff } from 'lucide-react';
 import { Pictogram } from './types';
 import PictogramCard from './components/PictogramCard';
 import CreateModal from './components/CreateModal';
 import { APP_TITLE } from './constants';
-import { generatePictogramAudio } from './services/geminiService';
-import { listPictograms, createPictogram, deletePictogram as apiDeletePictogram } from './services/apiService';
+import { generatePictogramImage, generatePictogramAudio } from './services/geminiService';
+import { uploadImageToS3 } from './services/storageService';
+import { listPictograms, createPictogram, deletePictogram } from './services/apiService';
 
-
-
+const EXAMPLE_WORDS = ['Perro', 'Casa', 'Feliz'];
 
 function App() {
   const [pictograms, setPictograms] = useState<Pictogram[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-
+  const [isLoadingExamples, setIsLoadingExamples] = useState(false);
+  const [isFetching, setIsFetching] = useState(true);
+  const [loadedCount, setLoadedCount] = useState(0);
   const [isEditMode, setIsEditMode] = useState(false); // Default to Read Only mode
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [darkMode, setDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('theme') === 'dark' || 
@@ -34,38 +37,59 @@ function App() {
     }
   }, [darkMode]);
 
-  // Load pictograms from API on mount
+  // Load from API on mount
+  const fetchPictograms = async () => {
+    setIsFetching(true);
+    setFetchError(null);
+    try {
+      const data = await listPictograms();
+      // Sort by creation date desc
+      const sorted = data.sort((a, b) => b.createdAt - a.createdAt);
+      setPictograms(sorted);
+    } catch (error) {
+      console.error("Failed to fetch pictograms:", error);
+      setFetchError("No se pudo conectar con el servidor.");
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
   useEffect(() => {
-    const loadPictograms = async () => {
-      try {
-        const data = await listPictograms();
-        setPictograms(data);
-      } catch (error) {
-        console.error('Failed to load pictograms:', error);
-        // Fallback to empty array on error
-        setPictograms([]);
-      }
-    };
-    loadPictograms();
+    fetchPictograms();
   }, []);
 
   const handleAddPictogram = async (newPictogram: Pictogram) => {
+    // The modal already handled S3 upload. Now we save the metadata to DB.
     try {
-      const created = await createPictogram(newPictogram);
-      setPictograms(prev => [created, ...prev]);
+        // We exclude ID because the backend might assign it, 
+        // OR if we are using UUID v4 generated on client, we keep it.
+        // The apiService expects Omit<Pictogram, 'id'> but checking the API code provided,
+        // it usually returns the created object. 
+        // Let's try sending it without ID and let backend handle it, or with ID if your backend supports it.
+        // For safety with the provided type definition:
+        const { id, ...pictogramData } = newPictogram;
+        
+        const created = await createPictogram(pictogramData);
+        
+        // Update local state
+        setPictograms(prev => [created, ...prev]);
     } catch (error) {
-      console.error('Failed to create pictogram:', error);
-      alert('Error al guardar el pictograma. Intenta de nuevo.');
+        console.error("Error creating pictogram in DB:", error);
+        alert("Error guardando en la base de datos, aunque la imagen se subió.");
     }
   };
 
   const handleDeletePictogram = async (id: string) => {
+    // Optimistic update
+    const previous = [...pictograms];
+    setPictograms(prev => prev.filter(p => p.id !== id));
+    
     try {
-      await apiDeletePictogram(id);
-      setPictograms(prev => prev.filter(p => p.id !== id));
+        await deletePictogram(id);
     } catch (error) {
-      console.error('Failed to delete pictogram:', error);
-      alert('Error al eliminar el pictograma. Intenta de nuevo.');
+        console.error("Error deleting pictogram:", error);
+        alert("No se pudo borrar el pictograma.");
+        setPictograms(previous); // Revert
     }
   };
 
@@ -79,29 +103,29 @@ function App() {
          let newAudioBase64 = picToUpdate.audioBase64;
          
          if (picToUpdate.word !== newWord.toUpperCase()) {
-             // If audio was custom recorded, we can't regenerate it for the new word accurately.
-             // Logic: If custom, warn or default to AI?
-             // Here we will default to standard AI generation to ensure audio matches text,
-             // unless the user manually re-records (which isn't in this quick-edit UI).
-             // Ideally, we use the saved voiceID if available.
-             
-             const voiceToUse = picToUpdate.voiceId || 'Zephyr'; // Default to Zephyr if not found or if it was custom before
+             const voiceToUse = picToUpdate.voiceId || 'Zephyr';
              newAudioBase64 = await generatePictogramAudio(newWord, voiceToUse);
          }
 
-         // 3. Update State
+         // NOTE: The provided API Service does not include an UPDATE/PUT method.
+         // For now, we will update Local State only so the user sees the change,
+         // but strictly speaking, this change won't persist to the DB on reload
+         // unless we implement an update endpoint.
+         
+         // Update State
          setPictograms(prev => prev.map(p => {
              if (p.id === id) {
                  return {
                      ...p,
                      word: newWord.toUpperCase(),
                      audioBase64: newAudioBase64,
-                     // If we regenerated audio, it's no longer custom if it was before
                      isCustomAudio: picToUpdate.word !== newWord.toUpperCase() ? false : p.isCustomAudio
                  };
              }
              return p;
          }));
+
+         // console.warn("Edit saved locally. Backend update not implemented in current API service.");
 
      } catch (error) {
          console.error("Error updating pictogram:", error);
@@ -110,7 +134,63 @@ function App() {
      }
   };
 
+  const handleLoadExamples = async () => {
+    if (isLoadingExamples) return;
+    setIsLoadingExamples(true);
+    setLoadedCount(0);
+    
+    try {
+        // Create promises for each example to generate them in parallel
+        const promises = EXAMPLE_WORDS.map(async (word) => {
+            try {
+                // Generate Image and Audio concurrently for this word
+                const [image, audio] = await Promise.all([
+                    generatePictogramImage(word),
+                    generatePictogramAudio(word, 'Zephyr') // Default voice for examples
+                ]);
+                
+                // Real S3 upload
+                const imageUrl = await uploadImageToS3(image, `example-${word}-${Date.now()}.png`);
+                
+                const pictogramData = {
+                    word: word.toUpperCase(),
+                    imageUrl,
+                    audioBase64: audio,
+                    createdAt: Date.now(),
+                    voiceId: 'Zephyr',
+                    isCustomAudio: false
+                };
 
+                // Save to DB
+                const created = await createPictogram(pictogramData);
+                
+                // Increment loaded count for visual feedback
+                setLoadedCount(prev => prev + 1);
+                
+                return created;
+            } catch (error) {
+                console.error(`Error generating example for ${word}:`, error);
+                return null;
+            }
+        });
+        
+        const results = await Promise.all(promises);
+        const successfulPictograms = results.filter((p): p is Pictogram => p !== null);
+        
+        if (successfulPictograms.length > 0) {
+            setPictograms(prev => [...successfulPictograms, ...prev]);
+        } else {
+            alert("No se pudieron generar los ejemplos.");
+        }
+        
+    } catch (error) {
+        console.error("Error loading examples:", error);
+        alert("Ocurrió un error cargando los ejemplos.");
+    } finally {
+        setIsLoadingExamples(false);
+        setLoadedCount(0);
+    }
+  };
 
   const toggleDarkMode = () => setDarkMode(!darkMode);
   const toggleEditMode = () => setIsEditMode(!isEditMode);
@@ -128,25 +208,19 @@ function App() {
             {/* Leonel's Lion Logo */}
             <div className="w-12 h-12 flex items-center justify-center hover:scale-110 transition-transform duration-300">
                <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-md" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  {/* Mane */}
                   <circle cx="50" cy="50" r="45" fill="#FBBC05" />
                   <circle cx="50" cy="50" r="45" stroke="#F59E0B" strokeWidth="3" />
-                  {/* Ears */}
                   <circle cx="25" cy="30" r="12" fill="#FBBC05" />
                   <circle cx="75" cy="30" r="12" fill="#FBBC05" />
                   <circle cx="25" cy="30" r="7" fill="#FFF9C4" />
                   <circle cx="75" cy="30" r="7" fill="#FFF9C4" />
-                  {/* Face */}
                   <circle cx="50" cy="55" r="32" fill="#FFF9C4" />
-                  {/* Nose */}
                   <path d="M42 52C42 52 50 60 58 52" stroke="#3E2723" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
                   <circle cx="50" cy="48" r="5" fill="#3E2723" />
-                  {/* Eyes */}
                   <circle cx="40" cy="40" r="4" fill="#3E2723" />
                   <circle cx="60" cy="40" r="4" fill="#3E2723" />
                   <circle cx="41.5" cy="38.5" r="1.5" fill="white" />
                   <circle cx="61.5" cy="38.5" r="1.5" fill="white" />
-                  {/* Cheeks */}
                   <circle cx="35" cy="55" r="5" fill="#F48FB1" opacity="0.6"/>
                   <circle cx="65" cy="55" r="5" fill="#F48FB1" opacity="0.6"/>
                </svg>
@@ -155,7 +229,7 @@ function App() {
           </div>
           
           <div className="flex items-center gap-2 sm:gap-3">
-            {/* Edit Mode Toggle - Only visible if there are pictograms */}
+            {/* Edit Mode Toggle */}
             {pictograms.length > 0 && (
               <button
                 onClick={toggleEditMode}
@@ -214,27 +288,65 @@ function App() {
             </div>
         )}
 
-        {/* Grid */}
-        {filteredPictograms.length === 0 ? (
-          <div className="text-center py-20">
-            <div className="w-24 h-24 bg-blue-50 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4 transition-colors duration-300">
-                <Search size={40} className="text-blue-300 dark:text-blue-500" />
+        {/* Error State */}
+        {fetchError && !isFetching && (
+            <div className="text-center py-10 text-red-500">
+                <CloudOff size={48} className="mx-auto mb-4 opacity-50" />
+                <p>{fetchError}</p>
+                <button onClick={fetchPictograms} className="mt-4 text-blue-500 underline">Intentar de nuevo</button>
             </div>
-            <h3 className="text-xl font-bold text-gray-500 dark:text-gray-400">No se encontraron pictogramas</h3>
-            <p className="text-gray-400 dark:text-gray-600 mt-2">Agrega uno nuevo usando el botón "Generar Pictograma".</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
-            {filteredPictograms.map(pictogram => (
-              <PictogramCard 
-                key={pictogram.id} 
-                pictogram={pictogram} 
-                onDelete={handleDeletePictogram}
-                onEdit={handleEditPictogram}
-                isEditMode={isEditMode}
-              />
-            ))}
-          </div>
+        )}
+
+        {/* Loading State */}
+        {isFetching && (
+            <div className="flex justify-center py-20">
+                <Loader2 size={40} className="animate-spin text-blue-500" />
+            </div>
+        )}
+
+        {/* Grid */}
+        {!isFetching && !fetchError && (
+            <>
+                {filteredPictograms.length === 0 ? (
+                  <div className="text-center py-20">
+                    <div className="w-24 h-24 bg-blue-50 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4 transition-colors duration-300">
+                        <Search size={40} className="text-blue-300 dark:text-blue-500" />
+                    </div>
+                    <h3 className="text-xl font-bold text-gray-500 dark:text-gray-400">No se encontraron pictogramas</h3>
+                    <p className="text-gray-400 dark:text-gray-600 mt-2 mb-6">Agrega uno nuevo o carga ejemplos para Leonel.</p>
+                    
+                    <button 
+                        onClick={handleLoadExamples}
+                        disabled={isLoadingExamples}
+                        className="inline-flex items-center gap-2 px-6 py-3 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 rounded-full font-semibold hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors disabled:opacity-50"
+                    >
+                        {isLoadingExamples ? (
+                            <>
+                                <Loader2 size={20} className="animate-spin"/>
+                                <span>Cargando ({loadedCount}/{EXAMPLE_WORDS.length})</span>
+                            </>
+                        ) : (
+                            <>
+                                <Sparkles size={20} />
+                                <span>Cargar Ejemplos</span>
+                            </>
+                        )}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+                    {filteredPictograms.map(pictogram => (
+                      <PictogramCard 
+                        key={pictogram.id} 
+                        pictogram={pictogram} 
+                        onDelete={handleDeletePictogram}
+                        onEdit={handleEditPictogram}
+                        isEditMode={isEditMode}
+                      />
+                    ))}
+                  </div>
+                )}
+            </>
         )}
       </main>
 
