@@ -7,10 +7,11 @@ interface PictogramCardProps {
   pictogram: Pictogram;
   onDelete: (id: string) => void;
   onEdit: (id: string, newWord: string) => Promise<void>;
+  onSelect?: (pictogram: Pictogram) => void;
   isEditMode: boolean;
 }
 
-const PictogramCard: React.FC<PictogramCardProps> = ({ pictogram, onDelete, onEdit, isEditMode }) => {
+const PictogramCard: React.FC<PictogramCardProps> = ({ pictogram, onDelete, onEdit, onSelect, isEditMode }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -19,6 +20,8 @@ const PictogramCard: React.FC<PictogramCardProps> = ({ pictogram, onDelete, onEd
 
   const handlePlay = async () => {
     if (isPlaying || isDeleting || isEditing) return;
+    
+    // Trigger audio
     setIsPlaying(true);
     try {
       await playAudio(pictogram.audioBase64);
@@ -27,6 +30,11 @@ const PictogramCard: React.FC<PictogramCardProps> = ({ pictogram, onDelete, onEd
     } catch (e) {
       console.error("Failed to play audio", e);
       setIsPlaying(false);
+    }
+
+    // Notify parent (for sentence builder)
+    if (onSelect && !isEditMode) {
+        onSelect(pictogram);
     }
   };
 

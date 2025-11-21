@@ -1,14 +1,29 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Moon, Sun, Sparkles, Loader2, Lock, Unlock, CloudOff } from 'lucide-react';
+import { Search, Sparkles, Loader2, Lock, Unlock, CloudOff } from 'lucide-react';
 import { Pictogram } from './types';
 import PictogramCard from './components/PictogramCard';
 import CreateModal from './components/CreateModal';
-import { APP_TITLE } from './constants';
+import Header from './components/Header';
+import SentenceStrip from './components/SentenceStrip';
 import { generatePictogramImage, generatePictogramAudio } from './services/geminiService';
 import { uploadImageToS3 } from './services/storageService';
 import { listPictograms, createPictogram, deletePictogram } from './services/apiService';
 
 const EXAMPLE_WORDS = ['Perro', 'Casa', 'Feliz'];
+
+// Simple Toast Component for better notifications
+const Toast: React.FC<{ message: string; type: 'success' | 'error'; onClose: () => void }> = ({ message, type, onClose }) => {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 3000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  return (
+    <div className={`fixed bottom-24 right-4 z-50 px-6 py-3 rounded-xl shadow-xl text-white font-bold animate-in slide-in-from-right fade-in ${type === 'success' ? 'bg-green-500' : 'bg-red-500'}`}>
+      {message}
+    </div>
+  );
+};
 
 function App() {
   const [pictograms, setPictograms] = useState<Pictogram[]>([]);
@@ -17,8 +32,11 @@ function App() {
   const [isLoadingExamples, setIsLoadingExamples] = useState(false);
   const [isFetching, setIsFetching] = useState(true);
   const [loadedCount, setLoadedCount] = useState(0);
-  const [isEditMode, setIsEditMode] = useState(false); // Default to Read Only mode
+  const [isEditMode, setIsEditMode] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [sentence, setSentence] = useState<Pictogram[]>([]);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
   const [darkMode, setDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('theme') === 'dark' || 
@@ -43,7 +61,6 @@ function App() {
     setFetchError(null);
     try {
       const data = await listPictograms();
-      // Sort by creation date desc
       const sorted = data.sort((a, b) => b.createdAt - a.createdAt);
       setPictograms(sorted);
     } catch (error) {
@@ -58,48 +75,41 @@ function App() {
     fetchPictograms();
   }, []);
 
+  const showToast = (message: string, type: 'success' | 'error') => {
+    setToast({ message, type });
+  };
+
   const handleAddPictogram = async (newPictogram: Pictogram) => {
-    // The modal already handled S3 upload. Now we save the metadata to DB.
     try {
-        // We exclude ID because the backend might assign it, 
-        // OR if we are using UUID v4 generated on client, we keep it.
-        // The apiService expects Omit<Pictogram, 'id'> but checking the API code provided,
-        // it usually returns the created object. 
-        // Let's try sending it without ID and let backend handle it, or with ID if your backend supports it.
-        // For safety with the provided type definition:
         const { id, ...pictogramData } = newPictogram;
-        
         const created = await createPictogram(pictogramData);
-        
-        // Update local state
         setPictograms(prev => [created, ...prev]);
+        showToast('Pictograma creado con éxito', 'success');
     } catch (error) {
         console.error("Error creating pictogram in DB:", error);
-        alert("Error guardando en la base de datos, aunque la imagen se subió.");
+        showToast('Error guardando en la base de datos', 'error');
     }
   };
 
   const handleDeletePictogram = async (id: string) => {
-    // Optimistic update
     const previous = [...pictograms];
     setPictograms(prev => prev.filter(p => p.id !== id));
     
     try {
         await deletePictogram(id);
+        showToast('Pictograma eliminado', 'success');
     } catch (error) {
         console.error("Error deleting pictogram:", error);
-        alert("No se pudo borrar el pictograma.");
-        setPictograms(previous); // Revert
+        showToast('No se pudo borrar el pictograma', 'error');
+        setPictograms(previous);
     }
   };
 
   const handleEditPictogram = async (id: string, newWord: string) => {
      try {
-         // 1. Find the pictogram
          const picToUpdate = pictograms.find(p => p.id === id);
          if (!picToUpdate) return;
 
-         // 2. Determine if we need to regenerate audio
          let newAudioBase64 = picToUpdate.audioBase64;
          
          if (picToUpdate.word !== newWord.toUpperCase()) {
@@ -107,12 +117,6 @@ function App() {
              newAudioBase64 = await generatePictogramAudio(newWord, voiceToUse);
          }
 
-         // NOTE: The provided API Service does not include an UPDATE/PUT method.
-         // For now, we will update Local State only so the user sees the change,
-         // but strictly speaking, this change won't persist to the DB on reload
-         // unless we implement an update endpoint.
-         
-         // Update State
          setPictograms(prev => prev.map(p => {
              if (p.id === id) {
                  return {
@@ -124,13 +128,12 @@ function App() {
              }
              return p;
          }));
-
-         // console.warn("Edit saved locally. Backend update not implemented in current API service.");
-
+         
+         showToast('Pictograma actualizado', 'success');
      } catch (error) {
          console.error("Error updating pictogram:", error);
-         alert("No se pudo actualizar el audio. Intenta de nuevo.");
-         throw error; // Throw so the card knows it failed
+         showToast('Error actualizando audio', 'error');
+         throw error;
      }
   };
 
@@ -140,16 +143,13 @@ function App() {
     setLoadedCount(0);
     
     try {
-        // Create promises for each example to generate them in parallel
         const promises = EXAMPLE_WORDS.map(async (word) => {
             try {
-                // Generate Image and Audio concurrently for this word
                 const [image, audio] = await Promise.all([
                     generatePictogramImage(word),
-                    generatePictogramAudio(word, 'Zephyr') // Default voice for examples
+                    generatePictogramAudio(word, 'Zephyr')
                 ]);
                 
-                // Real S3 upload
                 const imageUrl = await uploadImageToS3(image, `example-${word}-${Date.now()}.png`);
                 
                 const pictogramData = {
@@ -161,12 +161,8 @@ function App() {
                     isCustomAudio: false
                 };
 
-                // Save to DB
                 const created = await createPictogram(pictogramData);
-                
-                // Increment loaded count for visual feedback
                 setLoadedCount(prev => prev + 1);
-                
                 return created;
             } catch (error) {
                 console.error(`Error generating example for ${word}:`, error);
@@ -179,90 +175,49 @@ function App() {
         
         if (successfulPictograms.length > 0) {
             setPictograms(prev => [...successfulPictograms, ...prev]);
+            showToast(`${successfulPictograms.length} ejemplos cargados`, 'success');
         } else {
-            alert("No se pudieron generar los ejemplos.");
+            showToast("No se pudieron generar los ejemplos", 'error');
         }
         
     } catch (error) {
         console.error("Error loading examples:", error);
-        alert("Ocurrió un error cargando los ejemplos.");
+        showToast("Error general cargando ejemplos", 'error');
     } finally {
         setIsLoadingExamples(false);
         setLoadedCount(0);
     }
   };
 
-  const toggleDarkMode = () => setDarkMode(!darkMode);
-  const toggleEditMode = () => setIsEditMode(!isEditMode);
+  // Sentence Strip Logic
+  const addToSentence = (pictogram: Pictogram) => {
+    setSentence(prev => [...prev, pictogram]);
+  };
+
+  const removeFromSentence = (index: number) => {
+    setSentence(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const clearSentence = () => {
+    setSentence([]);
+  };
 
   const filteredPictograms = pictograms.filter(p => 
     p.word.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
-    <div className="min-h-screen bg-[#f0f9ff] dark:bg-gray-900 transition-colors duration-300">
-      {/* Header */}
-      <header className="bg-white dark:bg-gray-800 border-b border-blue-100 dark:border-gray-700 sticky top-0 z-40 shadow-sm transition-colors duration-300">
-        <div className="container mx-auto px-4 h-20 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {/* Leonel's Lion Logo */}
-            <div className="w-12 h-12 flex items-center justify-center hover:scale-110 transition-transform duration-300">
-               <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-md" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <circle cx="50" cy="50" r="45" fill="#FBBC05" />
-                  <circle cx="50" cy="50" r="45" stroke="#F59E0B" strokeWidth="3" />
-                  <circle cx="25" cy="30" r="12" fill="#FBBC05" />
-                  <circle cx="75" cy="30" r="12" fill="#FBBC05" />
-                  <circle cx="25" cy="30" r="7" fill="#FFF9C4" />
-                  <circle cx="75" cy="30" r="7" fill="#FFF9C4" />
-                  <circle cx="50" cy="55" r="32" fill="#FFF9C4" />
-                  <path d="M42 52C42 52 50 60 58 52" stroke="#3E2723" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-                  <circle cx="50" cy="48" r="5" fill="#3E2723" />
-                  <circle cx="40" cy="40" r="4" fill="#3E2723" />
-                  <circle cx="60" cy="40" r="4" fill="#3E2723" />
-                  <circle cx="41.5" cy="38.5" r="1.5" fill="white" />
-                  <circle cx="61.5" cy="38.5" r="1.5" fill="white" />
-                  <circle cx="35" cy="55" r="5" fill="#F48FB1" opacity="0.6"/>
-                  <circle cx="65" cy="55" r="5" fill="#F48FB1" opacity="0.6"/>
-               </svg>
-            </div>
-            <h1 className="text-3xl font-bold text-orange-500 dark:text-orange-400 tracking-tight transition-colors duration-300 font-fredoka hidden sm:block">{APP_TITLE}</h1>
-          </div>
-          
-          <div className="flex items-center gap-2 sm:gap-3">
-            {/* Edit Mode Toggle */}
-            {pictograms.length > 0 && (
-              <button
-                onClick={toggleEditMode}
-                className={`p-2 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${isEditMode ? 'bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/50 dark:text-red-300' : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400'}`}
-                title={isEditMode ? "Bloquear Edición" : "Habilitar Edición"}
-              >
-                {isEditMode ? <Unlock size={24} /> : <Lock size={24} />}
-              </button>
-            )}
+    <div className={`min-h-screen bg-[#f0f9ff] dark:bg-gray-900 transition-colors duration-300 ${sentence.length > 0 ? 'pb-32' : ''}`}>
+      
+      <Header 
+        darkMode={darkMode}
+        toggleDarkMode={() => setDarkMode(!darkMode)}
+        isEditMode={isEditMode}
+        toggleEditMode={() => setIsEditMode(!isEditMode)}
+        onOpenModal={() => setIsModalOpen(true)}
+        hasItems={pictograms.length > 0}
+      />
 
-            <div className="h-8 w-px bg-gray-200 dark:bg-gray-700 mx-1"></div>
-
-            <button
-               onClick={toggleDarkMode}
-               className="p-2 rounded-full bg-blue-50 dark:bg-gray-700 text-blue-600 dark:text-yellow-400 hover:bg-blue-100 dark:hover:bg-gray-600 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-300 dark:focus:ring-gray-500"
-               aria-label="Cambiar modo oscuro"
-            >
-               {darkMode ? <Sun size={24} /> : <Moon size={24} />}
-            </button>
-
-            <button 
-                onClick={() => setIsModalOpen(true)}
-                className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 sm:px-6 sm:py-3 rounded-full font-bold shadow-lg shadow-green-200 dark:shadow-none flex items-center gap-2 transition-all transform hover:scale-105 active:scale-95"
-            >
-                <Plus size={24} strokeWidth={3} />
-                <span className="hidden md:inline">Generar Pictograma</span>
-                <span className="md:hidden">Generar</span>
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
         
         {/* Search Bar */}
@@ -341,6 +296,7 @@ function App() {
                         pictogram={pictogram} 
                         onDelete={handleDeletePictogram}
                         onEdit={handleEditPictogram}
+                        onSelect={addToSentence}
                         isEditMode={isEditMode}
                       />
                     ))}
@@ -350,12 +306,26 @@ function App() {
         )}
       </main>
 
-      {/* Create Modal */}
+      {/* Sentence Builder Strip (AAC) */}
+      <SentenceStrip 
+        sentence={sentence}
+        onRemove={removeFromSentence}
+        onClear={clearSentence}
+      />
+
       <CreateModal 
         isOpen={isModalOpen} 
         onClose={() => setIsModalOpen(false)} 
         onSave={handleAddPictogram} 
       />
+
+      {toast && (
+        <Toast 
+          message={toast.message} 
+          type={toast.type} 
+          onClose={() => setToast(null)} 
+        />
+      )}
     </div>
   );
 }
