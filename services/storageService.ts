@@ -34,6 +34,42 @@ export const uploadImageToS3 = async (base64Image: string, filename: string): Pr
 };
 
 /**
+ * Uploads a Base64 audio string to AWS S3 using presigned URLs.
+ */
+export const uploadAudioToS3 = async (base64Audio: string, filename: string): Promise<string> => {
+  try {
+    // Get presigned URL from backend
+    // Note: We use 'audio/mpeg' as a generic type, but it could be wav depending on source
+    // The lambda now accepts any content type
+    const contentType = 'audio/mpeg'; 
+    const { uploadUrl, publicUrl } = await getUploadUrl(filename, contentType);
+    
+    // Convert base64 to blob
+    const blob = base64ToBlob(base64Audio, contentType);
+    
+    // Upload to S3 using presigned URL
+    const uploadResponse = await fetch(uploadUrl, {
+      method: 'PUT',
+      body: blob,
+      headers: {
+        'Content-Type': contentType
+      }
+    });
+    
+    if (!uploadResponse.ok) {
+      throw new Error(`S3 audio upload failed: ${uploadResponse.statusText}`);
+    }
+    
+    console.log(`[S3] Audio upload complete: ${filename}`);
+    return publicUrl;
+    
+  } catch (error) {
+    console.error('[S3] Audio upload error:', error);
+    throw error;
+  }
+};
+
+/**
  * Helper to convert Base64 to Blob if needed for real S3 upload
  */
 export const base64ToBlob = (base64: string, mimeType: string = 'image/png'): Blob => {

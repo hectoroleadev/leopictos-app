@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { X, Wand2, Save, Loader2, Volume2, Image as ImageIcon } from 'lucide-react';
 import { generatePictogramImage, generatePictogramAudio, playAudio, VOICE_OPTIONS } from '../services/geminiService';
-import { uploadImageToS3 } from '../services/storageService';
+import { uploadImageToS3, uploadAudioToS3 } from '../services/storageService';
 import { ProcessingState, Pictogram } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -51,10 +51,17 @@ const CreateModal: React.FC<CreateModalProps> = ({ isOpen, onClose, onSave }) =>
         throw new Error("No se pudo generar la imagen. Intenta reformular la palabra.");
       }
       
-      // 2. Audio disabled due to quota limits
+      // 2. Generate Audio
       setState(ProcessingState.GENERATING_AUDIO);
-      const audioBase64 = ''; // Audio disabled temporarily
-      setGeneratedAudio(audioBase64);
+      let audioBase64: string;
+      try {
+          audioBase64 = await generatePictogramAudio(word, selectedVoice);
+          setGeneratedAudio(audioBase64);
+      } catch (audioError) {
+          console.error("Audio generation error:", audioError);
+          // We continue without audio if it fails, or you could throw
+          audioBase64 = ''; 
+      }
 
       setState(ProcessingState.COMPLETE);
       
@@ -73,13 +80,26 @@ const CreateModal: React.FC<CreateModalProps> = ({ isOpen, onClose, onSave }) =>
 
     setState(ProcessingState.UPLOADING);
     try {
+        // Upload Image
         const imageUrl = await uploadImageToS3(generatedImage, `pictogram-${Date.now()}.png`);
+        
+        // Upload Audio if exists
+        let audioUrl = '';
+        if (generatedAudio) {
+            try {
+                audioUrl = await uploadAudioToS3(generatedAudio, `audio-${Date.now()}.mp3`);
+            } catch (e) {
+                console.error("Failed to upload audio", e);
+                // Continue without audio URL if upload fails
+            }
+        }
         
         const newPictogram: Pictogram = {
             id: uuidv4(),
             word: word.toUpperCase(),
             imageUrl: imageUrl,
-            audioBase64: generatedAudio,
+            audioUrl: audioUrl,
+            audioBase64: '', // We don't store base64 anymore
             createdAt: Date.now(),
             voiceId: selectedVoice,
             isCustomAudio: false
