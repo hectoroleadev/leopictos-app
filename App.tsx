@@ -1,21 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Moon, Sun, Sparkles, Loader2, Lock, Unlock } from 'lucide-react';
+import { Plus, Search, Moon, Sun, Lock, Unlock } from 'lucide-react';
 import { Pictogram } from './types';
 import PictogramCard from './components/PictogramCard';
 import CreateModal from './components/CreateModal';
 import { APP_TITLE } from './constants';
-import { generatePictogramImage, generatePictogramAudio } from './services/geminiService';
-import { uploadImageToS3 } from './services/storageService';
-import { v4 as uuidv4 } from 'uuid';
+import { generatePictogramAudio } from './services/geminiService';
+import { listPictograms, createPictogram, deletePictogram as apiDeletePictogram } from './services/apiService';
 
-const EXAMPLE_WORDS = ['Perro', 'Casa', 'Feliz'];
+
+
 
 function App() {
   const [pictograms, setPictograms] = useState<Pictogram[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [isLoadingExamples, setIsLoadingExamples] = useState(false);
-  const [loadedCount, setLoadedCount] = useState(0);
+
   const [isEditMode, setIsEditMode] = useState(false); // Default to Read Only mode
   const [darkMode, setDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -35,33 +34,39 @@ function App() {
     }
   }, [darkMode]);
 
-  // Load from localStorage on mount (Simulating database fetch)
+  // Load pictograms from API on mount
   useEffect(() => {
-    const saved = localStorage.getItem('pictograms');
-    if (saved) {
+    const loadPictograms = async () => {
       try {
-        setPictograms(JSON.parse(saved));
-      } catch (e) {
-        console.error("Failed to parse saved pictograms");
+        const data = await listPictograms();
+        setPictograms(data);
+      } catch (error) {
+        console.error('Failed to load pictograms:', error);
+        // Fallback to empty array on error
+        setPictograms([]);
       }
-    } else {
-      // Seed some initial data if empty
-      const initialData: Pictogram[] = []; // Could add defaults here
-      setPictograms(initialData);
-    }
+    };
+    loadPictograms();
   }, []);
 
-  // Save to localStorage whenever pictograms change
-  useEffect(() => {
-    localStorage.setItem('pictograms', JSON.stringify(pictograms));
-  }, [pictograms]);
-
-  const handleAddPictogram = (newPictogram: Pictogram) => {
-    setPictograms(prev => [newPictogram, ...prev]);
+  const handleAddPictogram = async (newPictogram: Pictogram) => {
+    try {
+      const created = await createPictogram(newPictogram);
+      setPictograms(prev => [created, ...prev]);
+    } catch (error) {
+      console.error('Failed to create pictogram:', error);
+      alert('Error al guardar el pictograma. Intenta de nuevo.');
+    }
   };
 
-  const handleDeletePictogram = (id: string) => {
-    setPictograms(prev => prev.filter(p => p.id !== id));
+  const handleDeletePictogram = async (id: string) => {
+    try {
+      await apiDeletePictogram(id);
+      setPictograms(prev => prev.filter(p => p.id !== id));
+    } catch (error) {
+      console.error('Failed to delete pictogram:', error);
+      alert('Error al eliminar el pictograma. Intenta de nuevo.');
+    }
   };
 
   const handleEditPictogram = async (id: string, newWord: string) => {
@@ -105,59 +110,7 @@ function App() {
      }
   };
 
-  const handleLoadExamples = async () => {
-    if (isLoadingExamples) return;
-    setIsLoadingExamples(true);
-    setLoadedCount(0);
-    
-    try {
-        // Create promises for each example to generate them in parallel
-        const promises = EXAMPLE_WORDS.map(async (word) => {
-            try {
-                // Generate Image and Audio concurrently for this word
-                const [image, audio] = await Promise.all([
-                    generatePictogramImage(word),
-                    generatePictogramAudio(word, 'Zephyr') // Default voice for examples
-                ]);
-                
-                // Simulate S3 upload
-                const imageUrl = await uploadImageToS3(image, `example-${word}.png`);
-                
-                // Increment loaded count for visual feedback
-                setLoadedCount(prev => prev + 1);
-                
-                return {
-                    id: uuidv4(),
-                    word: word.toUpperCase(),
-                    imageUrl,
-                    audioBase64: audio,
-                    createdAt: Date.now(),
-                    voiceId: 'Zephyr',
-                    isCustomAudio: false
-                } as Pictogram;
-            } catch (error) {
-                console.error(`Error generating example for ${word}:`, error);
-                return null;
-            }
-        });
-        
-        const results = await Promise.all(promises);
-        const successfulPictograms = results.filter((p): p is Pictogram => p !== null);
-        
-        if (successfulPictograms.length > 0) {
-            setPictograms(prev => [...successfulPictograms, ...prev]);
-        } else {
-            alert("No se pudieron generar los ejemplos. Verifica tu conexión o API Key.");
-        }
-        
-    } catch (error) {
-        console.error("Error loading examples:", error);
-        alert("Ocurrió un error cargando los ejemplos.");
-    } finally {
-        setIsLoadingExamples(false);
-        setLoadedCount(0);
-    }
-  };
+
 
   const toggleDarkMode = () => setDarkMode(!darkMode);
   const toggleEditMode = () => setIsEditMode(!isEditMode);
@@ -268,26 +221,7 @@ function App() {
                 <Search size={40} className="text-blue-300 dark:text-blue-500" />
             </div>
             <h3 className="text-xl font-bold text-gray-500 dark:text-gray-400">No se encontraron pictogramas</h3>
-            <p className="text-gray-400 dark:text-gray-600 mt-2 mb-6">Agrega uno nuevo o carga ejemplos para Leonel.</p>
-            
-            {/* Duplicate Examples Button for Empty State visibility */}
-            <button 
-                onClick={handleLoadExamples}
-                disabled={isLoadingExamples}
-                className="inline-flex items-center gap-2 px-6 py-3 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 rounded-full font-semibold hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors disabled:opacity-50"
-            >
-                {isLoadingExamples ? (
-                    <>
-                        <Loader2 size={20} className="animate-spin"/>
-                        <span>Cargando ({loadedCount}/{EXAMPLE_WORDS.length})</span>
-                    </>
-                ) : (
-                    <>
-                        <Sparkles size={20} />
-                        <span>Cargar Ejemplos</span>
-                    </>
-                )}
-            </button>
+            <p className="text-gray-400 dark:text-gray-600 mt-2">Agrega uno nuevo usando el botón "Generar Pictograma".</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">

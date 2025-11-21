@@ -51,19 +51,10 @@ const CreateModal: React.FC<CreateModalProps> = ({ isOpen, onClose, onSave }) =>
         throw new Error("No se pudo generar la imagen. Intenta reformular la palabra.");
       }
       
-      // 2. Generate Audio
+      // 2. Audio disabled due to quota limits
       setState(ProcessingState.GENERATING_AUDIO);
-      let audioBase64: string;
-      try {
-        audioBase64 = await generatePictogramAudio(word, selectedVoice);
-        setGeneratedAudio(audioBase64);
-      } catch (audioError) {
-         console.error("Audio generation error:", audioError);
-         throw new Error("La imagen se creó, pero falló el audio. Intenta de nuevo.");
-      }
-      
-      // Auto play
-      setTimeout(() => playAudio(audioBase64), 500);
+      const audioBase64 = ''; // Audio disabled temporarily
+      setGeneratedAudio(audioBase64);
 
       setState(ProcessingState.COMPLETE);
       
@@ -75,8 +66,8 @@ const CreateModal: React.FC<CreateModalProps> = ({ isOpen, onClose, onSave }) =>
   };
 
   const handleSave = async () => {
-    if (!generatedImage || !generatedAudio || !word) {
-        setError("Falta la imagen o el audio.");
+    if (!generatedImage || !word) {
+        setError("Falta la imagen.");
         return;
     }
 
@@ -230,7 +221,7 @@ const CreateModal: React.FC<CreateModalProps> = ({ isOpen, onClose, onSave }) =>
         </div>
 
         {/* Footer / Save Actions */}
-        {(generatedImage && generatedAudio && !isProcessing) && (
+        {(generatedImage && !isProcessing) && (
              <div className="p-6 bg-gray-50 dark:bg-gray-900 border-t border-gray-100 dark:border-gray-700 flex gap-4 transition-colors duration-300">
                 <button 
                     onClick={onClose}
